@@ -4,6 +4,20 @@
 
 It is local-first, intentionally conservative, and designed to make Codex feel less opaque while it is working.
 
+## Screenshots
+
+### Activity View
+
+![Codex Activity view showing pinned status and recent sanitized activity](https://raw.githubusercontent.com/jacsuper/codex-statusline-vscode/main/docs/screenshots/activity-overview.jpg)
+
+### Prompt And Event Details
+
+![Expanded activity details with split IDE context and user request blocks](https://raw.githubusercontent.com/jacsuper/codex-statusline-vscode/main/docs/screenshots/activity-detail.jpg)
+
+### Watch Another Log
+
+![Watch Another Log picker with friendly rollout labels](https://raw.githubusercontent.com/jacsuper/codex-statusline-vscode/main/docs/screenshots/watch-other.jpg)
+
 ## Features
 
 - Automatically watches local Codex rollout logs.
