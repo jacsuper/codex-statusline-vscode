@@ -1,8 +1,13 @@
 import * as crypto from 'crypto';
+import * as fs from 'node:fs';
+import * as readline from 'node:readline';
 import * as vscode from 'vscode';
 import { formatClockTime, formatRolloutLogDisplay } from './logDisplay';
 import { CodexStatus } from './statusModel';
 import { ActivityEvent } from './watcher';
+
+const maxDirectOpenBytes = 45 * 1000 * 1000;
+const excerptContextLines = 80;
 
 interface WebviewEvent {
   id: number;
@@ -93,6 +98,13 @@ export class CodexActivityView implements vscode.WebviewViewProvider {
     }
 
     try {
+      const stat = await fs.promises.stat(event.logPath);
+
+      if (stat.size >= maxDirectOpenBytes) {
+        await this.openEventLogExcerpt(event, stat.size);
+        return;
+      }
+
       const document = await vscode.workspace.openTextDocument(vscode.Uri.file(event.logPath));
       const editor = await vscode.window.showTextDocument(document, { preview: true });
 
@@ -112,6 +124,107 @@ export class CodexActivityView implements vscode.WebviewViewProvider {
       void vscode.window.showWarningMessage(`Could not open the selected Codex rollout log: ${message}`);
     }
   }
+
+  private async openEventLogExcerpt(event: ActivityEvent, fileSize: number): Promise<void> {
+    if (!event.logPath) {
+      return;
+    }
+
+    const excerpt = await readLogExcerpt(event.logPath, event.lineNumber);
+    const targetDescription = event.lineNumber ? `line ${event.lineNumber}` : 'end of file';
+    const content = [
+      `Codex rollout log excerpt`,
+      `Source: ${event.logPath}`,
+      `Size: ${formatBytes(fileSize)}`,
+      `Target: ${targetDescription}`,
+      ``,
+      `VS Code does not open rollout logs over 50 MB through extensions, so this is a local excerpt.`,
+      `Use a terminal or external editor to inspect the full file if needed.`,
+      ``,
+      excerpt
+    ].join('\n');
+
+    const document = await vscode.workspace.openTextDocument({
+      content,
+      language: 'jsonl'
+    });
+    const editor = await vscode.window.showTextDocument(document, { preview: true });
+
+    const markerLine = Math.max(0, content.split('\n').findIndex((line) => line.startsWith('> ')));
+    const position = new vscode.Position(markerLine, 0);
+    editor.selection = new vscode.Selection(position, position);
+    editor.revealRange(new vscode.Range(markerLine, 0, markerLine, 0), vscode.TextEditorRevealType.InCenter);
+  }
+}
+
+async function readLogExcerpt(logPath: string, lineNumber: number | undefined): Promise<string> {
+  if (lineNumber === undefined) {
+    return readTailExcerpt(logPath);
+  }
+
+  const startLine = Math.max(1, lineNumber - excerptContextLines);
+  const endLine = lineNumber + excerptContextLines;
+  const lines: string[] = [];
+  const reader = readline.createInterface({
+    input: fs.createReadStream(logPath, { encoding: 'utf8' }),
+    crlfDelay: Infinity
+  });
+
+  let currentLine = 0;
+
+  for await (const line of reader) {
+    currentLine += 1;
+
+    if (currentLine < startLine) {
+      continue;
+    }
+
+    if (currentLine > endLine) {
+      break;
+    }
+
+    lines.push(formatExcerptLine(currentLine, line, currentLine === lineNumber));
+  }
+
+  if (lines.length === 0) {
+    return readTailExcerpt(logPath);
+  }
+
+  return lines.join('\n');
+}
+
+async function readTailExcerpt(logPath: string): Promise<string> {
+  const stat = await fs.promises.stat(logPath);
+  const bytesToRead = Math.min(stat.size, 256 * 1024);
+  const handle = await fs.promises.open(logPath, 'r');
+
+  try {
+    const buffer = Buffer.alloc(bytesToRead);
+    await handle.read(buffer, 0, bytesToRead, Math.max(0, stat.size - bytesToRead));
+    const text = buffer.toString('utf8');
+    const lines = text.split(/\r?\n/).filter(Boolean).slice(-160);
+    const firstLine = Math.max(1, countNewlinesInFileTail(text, stat.size > bytesToRead) + 1);
+    return lines.map((line, index) => formatExcerptLine(firstLine + index, line, index === lines.length - 1)).join('\n');
+  } finally {
+    await handle.close();
+  }
+}
+
+function formatExcerptLine(lineNumber: number, line: string, selected: boolean): string {
+  return `${selected ? '>' : ' '} ${String(lineNumber).padStart(7, ' ')}  ${line}`;
+}
+
+function countNewlinesInFileTail(text: string, truncated: boolean): number {
+  if (!truncated) {
+    return 0;
+  }
+
+  return Math.max(0, text.split(/\r?\n/).length - 161);
+}
+
+function formatBytes(bytes: number): string {
+  const megabytes = bytes / (1024 * 1024);
+  return `${megabytes.toFixed(1)} MB`;
 }
 
 function toWebviewState(status: CodexStatus | undefined, events: ActivityEvent[]): WebviewState {
@@ -456,6 +569,34 @@ function renderHtml(state: WebviewState, cspSource: string, nonce: string): stri
       font-family: var(--vscode-editor-font-family);
       font-weight: 700;
     }
+    .prompt-parts {
+      display: grid;
+      gap: 8px;
+    }
+    .prompt-part {
+      border-left: 3px solid var(--vscode-button-background);
+      border-radius: 6px;
+      padding: 7px 8px;
+      background: var(--vscode-input-background);
+      overflow-wrap: anywhere;
+      white-space: pre-wrap;
+      font-size: 12px;
+    }
+    .prompt-context {
+      border-left-color: var(--vscode-charts-blue);
+    }
+    .prompt-request {
+      border-left-color: var(--vscode-charts-yellow);
+    }
+    .prompt-part-title {
+      display: block;
+      margin-bottom: 5px;
+      color: var(--vscode-descriptionForeground);
+      font-size: 10px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0;
+    }
   </style>
 </head>
 <body>
@@ -760,7 +901,9 @@ function renderHtml(state: WebviewState, cspSource: string, nonce: string): stri
 
       detail.append(title, grid);
 
-      if (mainDetail) {
+      if (mainDetail && item.kind === 'ASK') {
+        appendPromptBlocks(detail, mainDetail);
+      } else if (mainDetail) {
         appendDetailBlock(detail, detailHeading(item), mainDetail, item.kind);
       }
 
@@ -793,8 +936,74 @@ function renderHtml(state: WebviewState, cspSource: string, nonce: string): stri
       appendDetail(grid, 'Line', prompt.lineNumber ? String(prompt.lineNumber) : '--');
 
       detail.append(title, grid);
-      appendDetailBlock(detail, 'Prompt', prompt.detail || prompt.summary, 'ASK');
+      appendPromptBlocks(detail, stripPrefix(prompt.detail || prompt.summary, 'Prompt:'));
       return detail;
+    }
+
+    function appendPromptBlocks(parent, value) {
+      const parts = splitPromptParts(value);
+      const wrapper = document.createElement('div');
+      wrapper.className = 'prompt-parts';
+
+      for (const part of parts) {
+        const block = document.createElement('div');
+        block.className = 'prompt-part ' + part.className;
+
+        const title = document.createElement('span');
+        title.className = 'prompt-part-title';
+        title.textContent = part.title;
+
+        block.append(title, ...renderRichText(part.text));
+        wrapper.appendChild(block);
+      }
+
+      const heading = document.createElement('div');
+      heading.className = 'detail-heading';
+      heading.textContent = 'Prompt';
+      parent.append(heading, wrapper);
+    }
+
+    function splitPromptParts(value) {
+      const cleaned = (value || '').trim();
+
+      if (!cleaned) {
+        return [{ title: 'Request', text: 'empty prompt', className: 'prompt-request' }];
+      }
+
+      const requestMarker = '## My request for Codex:';
+      const requestIndex = cleaned.indexOf(requestMarker);
+
+      if (requestIndex === -1) {
+        return [{ title: 'Request', text: cleaned, className: 'prompt-request' }];
+      }
+
+      const before = cleaned.slice(0, requestIndex).trim();
+      const after = cleaned.slice(requestIndex + requestMarker.length).trim();
+      const parts = [];
+
+      if (before) {
+        parts.push({
+          title: 'IDE context',
+          text: normalizePromptContext(before),
+          className: 'prompt-context'
+        });
+      }
+
+      parts.push({
+        title: 'User request',
+        text: after || 'empty prompt',
+        className: 'prompt-request'
+      });
+
+      return parts;
+    }
+
+    function normalizePromptContext(value) {
+      return value
+        .replace(/^# Context from my IDE setup:\s*/i, '')
+        .replace(/^# Context\s*/i, '')
+        .replace(/##\s*/g, '')
+        .trim();
     }
 
     function appendDetailBlock(parent, heading, value, kind) {

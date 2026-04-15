@@ -147,7 +147,7 @@ function parseUserPromptEvent(event: JsonRecord): ParsedLogEvent | undefined {
   }
 
   const preview = sanitizePromptPreview(promptText, 96);
-  const detail = sanitizePromptPreview(promptText, 600);
+  const detail = sanitizePromptDetail(promptText, 900);
 
   return {
     kind: 'prompt',
@@ -347,6 +347,20 @@ function sanitizePromptPreview(value: string, maxLength: number): string {
   }
 
   return compact.length > maxLength ? `${compact.slice(0, Math.max(0, maxLength - 1))}...` : compact;
+}
+
+function sanitizePromptDetail(value: string, maxLength: number): string {
+  const normalized = value
+    .replace(/\r\n/g, '\n')
+    .replace(/[ \t]+\n/g, '\n')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+
+  if (!normalized) {
+    return 'empty prompt';
+  }
+
+  return normalized.length > maxLength ? `${normalized.slice(0, Math.max(0, maxLength - 1))}...` : normalized;
 }
 
 function eventMetadata(event: JsonRecord, toolName?: string): EventMetadata[] {
