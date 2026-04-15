@@ -146,7 +146,7 @@ function parseUserPromptEvent(event: JsonRecord): ParsedLogEvent | undefined {
     return undefined;
   }
 
-  const preview = sanitizePromptPreview(promptText, 96);
+  const preview = sanitizePromptPreview(extractUserRequestText(promptText) ?? promptText, 96);
   const detail = sanitizePromptDetail(promptText, 900);
 
   return {
@@ -347,6 +347,18 @@ function sanitizePromptPreview(value: string, maxLength: number): string {
   }
 
   return compact.length > maxLength ? `${compact.slice(0, Math.max(0, maxLength - 1))}...` : compact;
+}
+
+function extractUserRequestText(value: string): string | undefined {
+  const marker = '## My request for Codex:';
+  const markerIndex = value.indexOf(marker);
+
+  if (markerIndex === -1) {
+    return undefined;
+  }
+
+  const request = value.slice(markerIndex + marker.length).trim();
+  return request.length > 0 ? request : undefined;
 }
 
 function sanitizePromptDetail(value: string, maxLength: number): string {

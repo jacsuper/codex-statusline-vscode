@@ -110,6 +110,6 @@ test('parseLogLine extracts user prompt previews from event messages', () => {
     }
   });
 
-  assert.equal(parseLogLine(line)?.summary, 'ASK  # Context ## My request for Codex: Add the open log button.');
+  assert.equal(parseLogLine(line)?.summary, 'ASK  Add the open log button.');
   assert.equal(parseLogLine(line)?.detail, 'Prompt: # Context\n\n## My request for Codex:\nAdd the open log button.');
 });
