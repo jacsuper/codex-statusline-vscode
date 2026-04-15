@@ -1,0 +1,186 @@
+{
+  "name": "codex-statusline-vscode",
+  "displayName": "Codex Statusline",
+  "description": "Watch local Codex rollout logs and show a compact live status in VS Code.",
+  "version": "0.0.1",
+  "publisher": "jacsteyn",
+  "author": "Jac Steyn (https://github.com/jacsteyn)",
+  "icon": "icon.png",
+  "license": "MIT",
+  "engines": {
+    "vscode": "^1.92.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/jacsuper/codex-statusline-vscode.git"
+  },
+  "bugs": {
+    "url": "https://github.com/jacsuper/codex-statusline-vscode/issues"
+  },
+  "categories": [
+    "Other"
+  ],
+  "keywords": [
+    "codex",
+    "ai",
+    "status",
+    "vscode",
+    "productivity",
+    "agentic",
+    "logs",
+    "activity",
+    "statusline"
+  ],
+  "activationEvents": [
+    "onStartupFinished",
+    "onCommand:codexStatusline.startWatching",
+    "onCommand:codexStatusline.stopWatching",
+    "onCommand:codexStatusline.refreshNow",
+    "onCommand:codexStatusline.showOutput",
+    "onCommand:codexStatusline.showActivity",
+    "onCommand:codexStatusline.watchAnotherLog",
+    "onCommand:codexStatusline.pinCurrentLog",
+    "onCommand:codexStatusline.unpinFollowLatest",
+    "onCommand:codexStatusline.copyCurrentStatus",
+    "onCommand:codexStatusline.clearActivity",
+    "onView:codexStatusline.activityView"
+  ],
+  "main": "./dist/extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "codexStatusline.startWatching",
+        "title": "Codex Statusline: Start Watching"
+      },
+      {
+        "command": "codexStatusline.stopWatching",
+        "title": "Codex Statusline: Stop Watching"
+      },
+      {
+        "command": "codexStatusline.refreshNow",
+        "title": "Codex Statusline: Refresh Now"
+      },
+      {
+        "command": "codexStatusline.showOutput",
+        "title": "Codex Statusline: Show Output"
+      },
+      {
+        "command": "codexStatusline.showActivity",
+        "title": "Codex Statusline: Show Activity View"
+      },
+      {
+        "command": "codexStatusline.watchAnotherLog",
+        "title": "Codex Statusline: Watch Another Log"
+      },
+      {
+        "command": "codexStatusline.pinCurrentLog",
+        "title": "Codex Statusline: Pin Current Log"
+      },
+      {
+        "command": "codexStatusline.unpinFollowLatest",
+        "title": "Codex Statusline: Unpin and Follow Latest"
+      },
+      {
+        "command": "codexStatusline.copyCurrentStatus",
+        "title": "Codex Statusline: Copy Current Status"
+      },
+      {
+        "command": "codexStatusline.clearActivity",
+        "title": "Codex Statusline: Clear Activity View"
+      }
+    ],
+    "views": {
+      "explorer": [
+        {
+          "id": "codexStatusline.activityView",
+          "name": "Codex Activity",
+          "type": "webview"
+        }
+      ]
+    },
+    "configuration": {
+      "title": "Codex Statusline",
+      "properties": {
+        "codexStatusline.enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Enable the Codex Statusline watcher."
+        },
+        "codexStatusline.sessionsRoot": {
+          "type": "string",
+          "default": "~/.codex/sessions",
+          "description": "Root directory that contains Codex session rollout logs."
+        },
+        "codexStatusline.showInStatusBar": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show Codex status in the VS Code status bar."
+        },
+        "codexStatusline.showOutputChannel": {
+          "type": "boolean",
+          "default": false,
+          "description": "Write watcher events to the Codex Statusline output channel. The dockable activity view is the default activity surface."
+        },
+        "codexStatusline.pollIntervalMs": {
+          "type": "number",
+          "default": 3000,
+          "minimum": 1000,
+          "description": "How often to check for the newest rollout log."
+        },
+        "codexStatusline.idleTimeoutMs": {
+          "type": "number",
+          "default": 30000,
+          "minimum": 5000,
+          "description": "How long without parsed activity before a working status falls back to watching/pinned."
+        },
+        "codexStatusline.maxRecentEvents": {
+          "type": "number",
+          "default": 50,
+          "minimum": 1,
+          "description": "Maximum recent events retained in memory."
+        },
+        "codexStatusline.initialHistoryLines": {
+          "type": "number",
+          "default": 25,
+          "minimum": 0,
+          "maximum": 200,
+          "description": "Target number of recent parsed activity events to seed into the activity view when a log is first watched. The watcher may read more raw rollout log lines because many records are intentionally hidden. Set to 0 to only show new activity."
+        },
+        "codexStatusline.showFullEventPayloads": {
+          "type": "boolean",
+          "default": false,
+          "description": "When enabled, the activity detail panel will show the full JSON payload for unrecognized events. When disabled, only event keys are shown for privacy."
+        },
+        "codexStatusline.compactMode": {
+          "type": "boolean",
+          "default": true,
+          "description": "Use compact status text."
+        },
+        "codexStatusline.debug": {
+          "type": "boolean",
+          "default": false,
+          "description": "Enable extra diagnostic output."
+        }
+      }
+    }
+  },
+  "scripts": {
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./",
+    "check": "tsc --noEmit -p ./",
+    "test": "npm run compile && node --test tests/*.test.js",
+    "test:unit": "npm run compile && node --test tests/*.test.js",
+    "test:integration": "npm run compile && node tests/integration/runTest.js",
+    "test:all": "npm run test:unit && npm run test:integration",
+    "vsix:package": "vsce package --no-dependencies",
+    "vsix:install": "node scripts/install-local-vsix.js",
+    "vsix:reinstall": "npm run vsix:package && npm run vsix:install",
+    "vscode:prepublish": "npm run compile"
+  },
+  "devDependencies": {
+    "@types/node": "^20.19.39",
+    "@types/vscode": "^1.92.0",
+    "@vscode/test-electron": "^2.5.2",
+    "typescript": "^5.5.4"
+  }
+}

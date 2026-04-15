@@ -1,0 +1,12 @@
+node_modules/
+dist/
+.vscode-test/
+*.vsix
+*.log
+.DS_Store
+
+# Local agent working memory / prompts. Keep these on your machine, not in the public repo.
+DEVLOG.md
+PROGRESS.md
+codex.md
+codex_starter_prompt.txt
