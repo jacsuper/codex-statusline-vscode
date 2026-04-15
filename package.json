@@ -175,12 +175,14 @@
     "vsix:package": "vsce package --no-dependencies",
     "vsix:install": "node scripts/install-local-vsix.js",
     "vsix:reinstall": "npm run vsix:package && npm run vsix:install",
+    "marketplace:publish": "node scripts/publish-marketplace.js",
     "vscode:prepublish": "npm run compile"
   },
   "devDependencies": {
     "@types/node": "^20.19.39",
     "@types/vscode": "^1.92.0",
     "@vscode/test-electron": "^2.5.2",
+    "@vscode/vsce": "^3.8.1",
     "typescript": "^5.5.4"
   }
 }

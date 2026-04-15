@@ -4,19 +4,21 @@
 
 It is local-first, intentionally conservative, and designed to make Codex feel less opaque while it is working.
 
+Install it from the [Visual Studio Marketplace](https://marketplace.visualstudio.com/items?itemName=jacsteyn.codex-statusline-vscode).
+
 ## Screenshots
 
 ### Activity View
 
-![Codex Activity view showing pinned status and recent sanitized activity](https://raw.githubusercontent.com/jacsuper/codex-statusline-vscode/main/docs/screenshots/activity-overview.jpg)
+<img src="https://raw.githubusercontent.com/jacsuper/codex-statusline-vscode/main/docs/screenshots/activity-overview.jpg" alt="Codex Activity view showing pinned status and recent sanitized activity" width="520">
 
 ### Prompt And Event Details
 
-![Expanded activity details with split IDE context and user request blocks](https://raw.githubusercontent.com/jacsuper/codex-statusline-vscode/main/docs/screenshots/activity-detail.jpg)
+<img src="https://raw.githubusercontent.com/jacsuper/codex-statusline-vscode/main/docs/screenshots/activity-detail.jpg" alt="Expanded activity details with split IDE context and user request blocks" width="520">
 
 ### Watch Another Log
 
-![Watch Another Log picker with friendly rollout labels](https://raw.githubusercontent.com/jacsuper/codex-statusline-vscode/main/docs/screenshots/watch-other.jpg)
+<img src="https://raw.githubusercontent.com/jacsuper/codex-statusline-vscode/main/docs/screenshots/watch-other.jpg" alt="Watch Another Log picker with friendly rollout labels" width="520">
 
 ## Features
 
@@ -143,11 +145,14 @@ npm run test:all
 npm run vsix:package
 npm run vsix:install
 npm run vsix:reinstall
+npm run marketplace:publish
 ```
 
 `npm test` runs the pure Node unit tests. `npm run test:integration` launches a VS Code Extension Host smoke test using `@vscode/test-electron`.
 
 `npm run vsix:package` builds a local `.vsix` with `vsce`. `npm run vsix:install` installs the already-built VSIX into the local VS Code CLI using `--force`. On macOS it can also fall back to the CLI bundled inside the VS Code app. Use `npm run vsix:reinstall` for the normal rebuild-and-reinstall loop.
+
+`npm run marketplace:publish` runs the full test suite, packages the VSIX, and publishes that exact package to the VS Code Marketplace. Authenticate first with either `npx vsce login jacsteyn` or a `VSCE_PAT` environment variable.
 
 If your VS Code CLI is not named `code`, set `VSCODE_CLI`:
 
