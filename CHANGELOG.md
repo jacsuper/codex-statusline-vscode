@@ -4,7 +4,13 @@ All notable changes to Codex Statusline will be documented in this file.
 
 This project follows a pragmatic pre-1.0 changelog style while the extension is still stabilizing.
 
-## 0.0.1 - Unreleased
+## 0.0.2 - Unreleased
+
+### Changed
+
+- Use smaller README screenshot assets so Marketplace rendering does not stretch images too large.
+
+## 0.0.1 - 2026-04-15
 
 ### Added
 

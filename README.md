@@ -10,15 +10,15 @@ Install it from the [Visual Studio Marketplace](https://marketplace.visualstudio
 
 ### Activity View
 
-<img src="https://raw.githubusercontent.com/jacsuper/codex-statusline-vscode/main/docs/screenshots/activity-overview.jpg" alt="Codex Activity view showing pinned status and recent sanitized activity" width="520">
+![Codex Activity view showing pinned status and recent sanitized activity](https://raw.githubusercontent.com/jacsuper/codex-statusline-vscode/main/docs/screenshots/thumbs/activity-overview.jpg)
 
 ### Prompt And Event Details
 
-<img src="https://raw.githubusercontent.com/jacsuper/codex-statusline-vscode/main/docs/screenshots/activity-detail.jpg" alt="Expanded activity details with split IDE context and user request blocks" width="520">
+![Expanded activity details with split IDE context and user request blocks](https://raw.githubusercontent.com/jacsuper/codex-statusline-vscode/main/docs/screenshots/thumbs/activity-detail.jpg)
 
 ### Watch Another Log
 
-<img src="https://raw.githubusercontent.com/jacsuper/codex-statusline-vscode/main/docs/screenshots/watch-other.jpg" alt="Watch Another Log picker with friendly rollout labels" width="520">
+![Watch Another Log picker with friendly rollout labels](https://raw.githubusercontent.com/jacsuper/codex-statusline-vscode/main/docs/screenshots/thumbs/watch-other.jpg)
 
 ## Features
 
