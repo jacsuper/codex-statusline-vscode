@@ -4,7 +4,14 @@ All notable changes to Codex Statusline will be documented in this file.
 
 This project follows a pragmatic pre-1.0 changelog style while the extension is still stabilizing.
 
-## 0.0.2 - Unreleased
+## 0.0.3 - 2026-04-16
+
+### Added
+
+- Pause/resume control for the activity view so new log activity can be frozen while reading.
+- Small icons on activity view controls for quicker scanning.
+
+## 0.0.2 - 2026-04-16
 
 ### Changed
 

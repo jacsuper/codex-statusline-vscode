@@ -32,6 +32,7 @@ Install it from the [Visual Studio Marketplace](https://marketplace.visualstudio
 - Supports pinned and follow-latest log modes for multi-Codex workflows.
 - Uses friendly rollout labels like `Today 19:16` instead of long `rollout-...jsonl` filenames.
 - Seeds the activity view with a small bounded slice of recent history when a log is first watched.
+- Lets you pause and resume activity rendering so fast-moving logs stay readable.
 - Keeps the output channel opt-in for diagnostics.
 - Handles malformed JSONL, partial trailing log lines, missing logs, file truncation, and newer rollout logs.
 

@@ -291,6 +291,23 @@ function renderHtml(state: WebviewState, cspSource: string, nonce: string): stri
       border-bottom: 1px solid var(--vscode-widget-border);
       box-shadow: 0 4px 10px rgba(0, 0, 0, 0.16);
     }
+    body.paused .sticky-header {
+      background: color-mix(in srgb, var(--vscode-charts-yellow) 18%, var(--vscode-sideBar-background));
+      border-bottom-color: var(--vscode-charts-yellow);
+    }
+    .pause-banner {
+      display: none;
+      margin: 0 0 8px;
+      border: 1px solid var(--vscode-charts-yellow);
+      border-radius: 8px;
+      padding: 7px 8px;
+      color: var(--vscode-editor-background);
+      background: var(--vscode-charts-yellow);
+      font-weight: 700;
+    }
+    body.paused .pause-banner {
+      display: block;
+    }
     .status {
       border: 1px solid var(--vscode-widget-border);
       border-radius: 8px;
@@ -492,7 +509,7 @@ function renderHtml(state: WebviewState, cspSource: string, nonce: string): stri
     }
     .local-actions {
       display: grid;
-      grid-template-columns: repeat(3, 1fr);
+      grid-template-columns: repeat(4, 1fr);
       gap: 6px;
       margin: -4px 0 12px;
     }
@@ -506,6 +523,14 @@ function renderHtml(state: WebviewState, cspSource: string, nonce: string): stri
       font-weight: 700;
       padding: 4px 6px;
       cursor: pointer;
+    }
+    .mini-action.primary {
+      color: var(--vscode-button-foreground);
+      background: var(--vscode-button-background);
+    }
+    .mini-action.primary:hover,
+    .mini-action.primary:focus {
+      background: var(--vscode-button-hoverBackground);
     }
     .mini-action:hover,
     .mini-action:focus {
@@ -601,6 +626,7 @@ function renderHtml(state: WebviewState, cspSource: string, nonce: string): stri
 </head>
 <body>
   <header class="sticky-header">
+    <div id="pause-banner" class="pause-banner">Paused</div>
     <section class="status">
       <div class="eyebrow">Codex Status</div>
       <div class="current"><span id="status-dot" class="dot"></span><strong id="status-text"></strong></div>
@@ -612,13 +638,14 @@ function renderHtml(state: WebviewState, cspSource: string, nonce: string): stri
       </div>
     </section>
     <section class="actions" aria-label="Follow controls">
-      <button type="button" class="action" data-action="watchAnother">Watch other</button>
+      <button type="button" class="action" data-action="watchAnother">⇄ Watch other</button>
       <button type="button" id="mode-action" class="action"></button>
     </section>
     <section class="local-actions" aria-label="View controls">
-      <button type="button" class="mini-action" data-local-action="top">Top</button>
-      <button type="button" class="mini-action" data-local-action="bottom">Bottom</button>
-      <button type="button" class="mini-action" data-local-action="clear">Clear</button>
+      <button type="button" id="pause-action" class="mini-action primary" data-local-action="pause">⏸ Pause</button>
+      <button type="button" class="mini-action" data-local-action="top">↑ Top</button>
+      <button type="button" class="mini-action" data-local-action="bottom">↓ Bottom</button>
+      <button type="button" class="mini-action" data-local-action="clear">× Clear</button>
     </section>
   </header>
   <section id="events" class="events" aria-label="Recent Codex activity"></section>
@@ -628,6 +655,9 @@ function renderHtml(state: WebviewState, cspSource: string, nonce: string): stri
     let lastStateJson = '';
     let selectedEventId = undefined;
     let promptFallback = undefined;
+    let paused = false;
+    let pendingState = undefined;
+    let pendingUpdateCount = 0;
 
     const statusText = document.getElementById('status-text');
     const statusDot = document.getElementById('status-dot');
@@ -636,6 +666,8 @@ function renderHtml(state: WebviewState, cspSource: string, nonce: string): stri
     const followMode = document.getElementById('follow-mode');
     const lastUpdate = document.getElementById('last-update');
     const modeAction = document.getElementById('mode-action');
+    const pauseAction = document.getElementById('pause-action');
+    const pauseBanner = document.getElementById('pause-banner');
     const eventsRoot = document.getElementById('events');
 
     document.querySelectorAll('[data-action]').forEach((button) => {
@@ -646,9 +678,27 @@ function renderHtml(state: WebviewState, cspSource: string, nonce: string): stri
 
     document.querySelectorAll('[data-local-action]').forEach((button) => {
       button.addEventListener('click', () => {
+        if (button.dataset.localAction === 'pause') {
+          paused = !paused;
+
+          if (!paused && pendingState) {
+            state = pendingState;
+            pendingState = undefined;
+            pendingUpdateCount = 0;
+            reconcileSelection();
+          }
+
+          render();
+          return;
+        }
+
         if (button.dataset.localAction === 'clear') {
           selectedEventId = undefined;
           promptFallback = undefined;
+          pendingState = undefined;
+          pendingUpdateCount = 0;
+          state = { ...state, events: [] };
+          render();
           vscode.postMessage({ action: 'clearActivity' });
           return;
         }
@@ -726,17 +776,15 @@ function renderHtml(state: WebviewState, cspSource: string, nonce: string): stri
       if (currentStateJson === lastStateJson) { return; }
       lastStateJson = currentStateJson;
 
+      if (paused) {
+        pendingState = event.data.state;
+        pendingUpdateCount += 1;
+        renderPausedChrome();
+        return;
+      }
+
       state = event.data.state;
-
-      if (selectedEventId !== undefined && !state.events.some((item) => item.id === selectedEventId)) {
-        selectedEventId = undefined;
-        promptFallback = undefined;
-      }
-
-      if (promptFallback !== undefined && !state.events.some((item) => item.id === promptFallback.sourceEventId)) {
-        promptFallback = undefined;
-      }
-
+      reconcileSelection();
       render();
     });
 
@@ -750,8 +798,34 @@ function renderHtml(state: WebviewState, cspSource: string, nonce: string): stri
       followMode.textContent = state.followMode === 'pinned' ? 'Pinned to this log' : 'Following newest log';
       lastUpdate.textContent = 'Updated ' + state.lastUpdate;
       modeAction.dataset.action = state.followMode === 'pinned' ? 'followLatest' : 'pinCurrent';
-      modeAction.textContent = state.followMode === 'pinned' ? 'Follow latest' : 'Pin current';
+      modeAction.textContent = state.followMode === 'pinned' ? '▶ Follow latest' : '📌 Pin current';
+      renderPausedChrome();
       renderEvents();
+    }
+
+    function renderPausedChrome() {
+      document.body.classList.toggle('paused', paused);
+      pauseAction.textContent = paused ? '▶ Resume' : '⏸ Pause';
+      pauseAction.setAttribute('aria-pressed', paused ? 'true' : 'false');
+
+      if (!paused) {
+        pauseBanner.textContent = 'Paused';
+        return;
+      }
+
+      const waiting = pendingUpdateCount === 0 ? 'No new updates yet' : pendingUpdateCount + ' update' + (pendingUpdateCount === 1 ? '' : 's') + ' waiting';
+      pauseBanner.textContent = 'Paused · activity is frozen · ' + waiting;
+    }
+
+    function reconcileSelection() {
+      if (selectedEventId !== undefined && !state.events.some((item) => item.id === selectedEventId)) {
+        selectedEventId = undefined;
+        promptFallback = undefined;
+      }
+
+      if (promptFallback !== undefined && !state.events.some((item) => item.id === promptFallback.sourceEventId)) {
+        promptFallback = undefined;
+      }
     }
 
     function renderEvents() {
