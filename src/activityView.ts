@@ -446,6 +446,13 @@ function renderHtml(state: WebviewState, cspSource: string, nonce: string): stri
     .tag-edit { background: var(--vscode-charts-orange); }
     .tag-tool { background: var(--vscode-charts-blue); }
     .tag-log { background: var(--vscode-charts-green); }
+    .tag-token { background: var(--vscode-charts-foreground); color: var(--vscode-editor-background); }
+    .tag-msg { background: var(--vscode-charts-blue); }
+    .tag-out { background: var(--vscode-charts-blue); }
+    .tag-task { background: var(--vscode-charts-green); }
+    .tag-err { background: var(--vscode-charts-red); }
+    .tag-context { background: var(--vscode-charts-purple); }
+    .tag-session { background: var(--vscode-charts-green); }
     .event-text {
       min-width: 0;
       display: grid;
@@ -621,6 +628,42 @@ function renderHtml(state: WebviewState, cspSource: string, nonce: string): stri
       font-weight: 700;
       text-transform: uppercase;
       letter-spacing: 0;
+    }
+    .token-meters {
+      display: grid;
+      gap: 6px;
+      margin-top: 10px;
+    }
+    .token-meter {
+      display: grid;
+      gap: 3px;
+    }
+    .token-meter-label {
+      display: flex;
+      justify-content: space-between;
+      gap: 8px;
+      color: var(--vscode-descriptionForeground);
+      font-size: 11px;
+      font-weight: 700;
+    }
+    .token-meter-track {
+      height: 7px;
+      overflow: hidden;
+      border-radius: 7px;
+      background: var(--vscode-input-background);
+      border: 1px solid var(--vscode-widget-border);
+    }
+    .token-meter-fill {
+      height: 100%;
+      width: var(--meter-width);
+      border-radius: 7px;
+      background: var(--vscode-charts-blue);
+    }
+    .token-meter-fill.warn {
+      background: var(--vscode-charts-yellow);
+    }
+    .token-meter-fill.hot {
+      background: var(--vscode-charts-red);
     }
   </style>
 </head>
@@ -975,6 +1018,10 @@ function renderHtml(state: WebviewState, cspSource: string, nonce: string): stri
 
       detail.append(title, grid);
 
+      if (item.kind === 'TOKEN') {
+        appendTokenMeters(detail, item);
+      }
+
       if (mainDetail && item.kind === 'ASK') {
         appendPromptBlocks(detail, mainDetail);
       } else if (mainDetail) {
@@ -1035,6 +1082,66 @@ function renderHtml(state: WebviewState, cspSource: string, nonce: string): stri
       heading.className = 'detail-heading';
       heading.textContent = 'Prompt';
       parent.append(heading, wrapper);
+    }
+
+    function appendTokenMeters(parent, item) {
+      const meters = [
+        tokenMeterFromMetadata(item, '5h limit', '5h limit'),
+        tokenMeterFromMetadata(item, 'Weekly limit', 'Weekly limit'),
+        tokenMeterFromMetadata(item, 'Context', 'Context window')
+      ].filter(Boolean);
+
+      if (meters.length === 0) {
+        return;
+      }
+
+      const heading = document.createElement('div');
+      heading.className = 'detail-heading';
+      heading.textContent = 'Token usage';
+
+      const wrapper = document.createElement('div');
+      wrapper.className = 'token-meters';
+
+      for (const meter of meters) {
+        const row = document.createElement('div');
+        row.className = 'token-meter';
+
+        const label = document.createElement('div');
+        label.className = 'token-meter-label';
+        const labelText = document.createElement('span');
+        labelText.textContent = meter.label;
+        const valueText = document.createElement('span');
+        valueText.textContent = meter.value;
+        label.append(labelText, valueText);
+
+        const track = document.createElement('div');
+        track.className = 'token-meter-track';
+        const fill = document.createElement('div');
+        fill.className = 'token-meter-fill' + (meter.percent >= 85 ? ' hot' : meter.percent >= 65 ? ' warn' : '');
+        fill.style.setProperty('--meter-width', Math.max(0, Math.min(100, meter.percent)) + '%');
+        track.appendChild(fill);
+
+        row.append(label, track);
+        wrapper.appendChild(row);
+      }
+
+      parent.append(heading, wrapper);
+    }
+
+    function tokenMeterFromMetadata(item, label, displayLabel) {
+      const entry = item.metadata.find((candidate) => candidate.label === label);
+
+      if (!entry) {
+        return undefined;
+      }
+
+      const percent = Number(String(entry.value).replace('%', ''));
+
+      if (!Number.isFinite(percent)) {
+        return undefined;
+      }
+
+      return { label: displayLabel, value: entry.value, percent };
     }
 
     function splitPromptParts(value) {
@@ -1125,6 +1232,13 @@ function renderHtml(state: WebviewState, cspSource: string, nonce: string): stri
       if (item.kind === 'ASK') { return 'Prompt'; }
       if (item.kind === 'EDIT') { return 'Change'; }
       if (item.kind === 'TOOL') { return 'Tool'; }
+      if (item.kind === 'TOKEN') { return 'Token numbers'; }
+      if (item.kind === 'MSG') { return 'Message'; }
+      if (item.kind === 'TASK') { return 'Task'; }
+      if (item.kind === 'ERR') { return 'Error'; }
+      if (item.kind === 'OUT') { return 'Output'; }
+      if (item.kind === 'CTX') { return 'Context'; }
+      if (item.kind === 'SESSION') { return 'Session'; }
       return 'Detail';
     }
 
@@ -1135,6 +1249,18 @@ function renderHtml(state: WebviewState, cspSource: string, nonce: string): stri
 
       if (item.kind === 'RUN') {
         return stripPrefix(item.detail, 'Command:');
+      }
+
+      if (item.kind === 'TOKEN' || item.kind === 'MSG' || item.kind === 'TASK' || item.kind === 'ERR') {
+        return item.detail;
+      }
+
+      if (item.kind === 'OUT') {
+        return item.detail;
+      }
+
+      if (item.kind === 'CTX' || item.kind === 'SESSION') {
+        return item.detail;
       }
 
       if (item.detail && item.detail !== item.label && item.detail !== item.summary) {
@@ -1222,6 +1348,13 @@ function renderHtml(state: WebviewState, cspSource: string, nonce: string): stri
       if (kind === 'ASK') { return 'var(--vscode-charts-yellow)'; }
       if (kind === 'EDIT') { return 'var(--vscode-charts-orange)'; }
       if (kind === 'TOOL') { return 'var(--vscode-charts-blue)'; }
+      if (kind === 'TOKEN') { return 'var(--vscode-charts-foreground)'; }
+      if (kind === 'MSG') { return 'var(--vscode-charts-blue)'; }
+      if (kind === 'OUT') { return 'var(--vscode-charts-blue)'; }
+      if (kind === 'TASK') { return 'var(--vscode-charts-green)'; }
+      if (kind === 'ERR') { return 'var(--vscode-charts-red)'; }
+      if (kind === 'CTX') { return 'var(--vscode-charts-purple)'; }
+      if (kind === 'SESSION') { return 'var(--vscode-charts-green)'; }
       return 'var(--vscode-charts-green)';
     }
   </script>
@@ -1249,10 +1382,38 @@ function isMessage(value: unknown): value is { action: string; eventId?: unknown
 }
 
 function eventLabel(summary: string): string {
-  return summary.replace(/^(ASK|RUN|EDIT|FILE|TOOL)\s+/, '').trim();
+  return summary.replace(/^(ASK|RUN|EDIT|FILE|TOOL|TOKEN|MSG|OUT|TASK|ERR|CTX|SESSION)\s+/, '').trim();
 }
 
 function eventTag(summary: string): { label: string; className: string } {
+  if (summary.startsWith('TOKEN')) {
+    return { label: 'TOKEN', className: 'tag-token' };
+  }
+
+  if (summary.startsWith('MSG')) {
+    return { label: 'MSG', className: 'tag-msg' };
+  }
+
+  if (summary.startsWith('OUT')) {
+    return { label: 'OUT', className: 'tag-out' };
+  }
+
+  if (summary.startsWith('TASK')) {
+    return { label: 'TASK', className: 'tag-task' };
+  }
+
+  if (summary.startsWith('ERR')) {
+    return { label: 'ERR', className: 'tag-err' };
+  }
+
+  if (summary.startsWith('CTX')) {
+    return { label: 'CTX', className: 'tag-context' };
+  }
+
+  if (summary.startsWith('SESSION')) {
+    return { label: 'SESSION', className: 'tag-session' };
+  }
+
   if (summary.startsWith('ASK')) {
     return { label: 'ASK', className: 'tag-ask' };
   }

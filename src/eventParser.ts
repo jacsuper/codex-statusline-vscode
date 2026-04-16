@@ -1,4 +1,4 @@
-export type ParsedEventKind = 'prompt' | 'message' | 'command' | 'edit' | 'patch' | 'status';
+export type ParsedEventKind = 'prompt' | 'message' | 'command' | 'edit' | 'patch' | 'status' | 'token';
 
 export interface ParsedLogEvent {
   kind: ParsedEventKind;
@@ -45,7 +45,72 @@ function parseKnownEvent(event: JsonRecord): ParsedLogEvent | undefined {
   const payload = getRecord(event, 'payload') ?? getRecord(event, 'item') ?? getRecord(event, 'data');
   const type = getString(event, 'type') ?? getString(payload, 'type') ?? getString(event, 'event');
   const name = getString(event, 'name') ?? getString(payload, 'name') ?? getString(payload, 'method');
-  const combinedType = [type, name].filter(Boolean).join(' ').toLowerCase();
+  const payloadType = getString(payload, 'type');
+  const combinedType = [type, payloadType, name].filter(Boolean).join(' ').toLowerCase();
+
+  if (type === 'session_meta') {
+    return parseSessionMetaEvent(event);
+  }
+
+  if (type === 'turn_context') {
+    return parseTurnContextEvent(event);
+  }
+
+  if (type === 'compacted' || payloadType === 'context_compacted') {
+    return {
+      kind: 'status',
+      summary: 'CTX  compacted',
+      statusText: 'Codex: compacted context',
+      detail: 'Context compacted',
+      metadata: eventMetadata(event)
+    };
+  }
+
+  if (payload && payloadType === 'token_count') {
+    return parseTokenCountEvent(event, payload);
+  }
+
+  if (payload && payloadType === 'agent_message') {
+    return parseAgentMessageEvent(event, payload);
+  }
+
+  if (payload && (payloadType === 'function_call_output' || payloadType === 'custom_tool_call_output')) {
+    return parseToolOutputEvent(event, payload);
+  }
+
+  if (payload && payloadType === 'patch_apply_end') {
+    return parsePatchApplyEndEvent(event, payload);
+  }
+
+  if (payloadType === 'task_started') {
+    return {
+      kind: 'status',
+      summary: 'TASK started',
+      statusText: 'Codex: working',
+      detail: 'Task started',
+      metadata: eventMetadata(event)
+    };
+  }
+
+  if (payload && payloadType === 'task_complete') {
+    return {
+      kind: 'status',
+      summary: 'TASK complete',
+      statusText: 'Codex: watching',
+      detail: summarizeTaskComplete(payload),
+      metadata: eventMetadata(event)
+    };
+  }
+
+  if (payload && payloadType === 'error') {
+    return {
+      kind: 'status',
+      summary: `ERR  ${sanitizeMessagePreview(getString(payload, 'message') ?? 'error', 80)}`,
+      statusText: 'Codex: error',
+      detail: sanitizeMessageDetail(getString(payload, 'message') ?? JSON.stringify(payload), 900),
+      metadata: eventMetadata(event)
+    };
+  }
 
   if (combinedType.includes('function_call') || combinedType.includes('tool_call') || combinedType.includes('tool')) {
     const toolName = name ?? getString(payload, 'tool') ?? getString(payload, 'tool_name');
@@ -101,6 +166,174 @@ function parseKnownEvent(event: JsonRecord): ParsedLogEvent | undefined {
   }
 
   return undefined;
+}
+
+function parseSessionMetaEvent(event: JsonRecord): ParsedLogEvent {
+  const payload = getRecord(event, 'payload');
+  const id = getString(payload, 'id') ?? getString(payload, 'session_id');
+  const cwd = getString(payload, 'cwd');
+
+  return {
+    kind: 'status',
+    summary: `SESSION ${id ? sanitizeSessionId(id) : 'started'}`,
+    detail: [id ? `Session: ${sanitizeSessionId(id)}` : undefined, cwd ? `Workspace: ${sanitizePath(cwd)}` : undefined].filter(Boolean).join('\n') || 'Session started',
+    metadata: eventMetadata(event)
+  };
+}
+
+function parseTurnContextEvent(event: JsonRecord): ParsedLogEvent {
+  const payload = getRecord(event, 'payload');
+  const cwd = getString(payload, 'cwd');
+  const model = getString(payload, 'model');
+  const effort = getString(payload, 'effort');
+  const approval = getString(payload, 'approval_policy');
+  const sandbox = getRecord(payload, 'sandbox_policy');
+  const sandboxType = getString(sandbox, 'type');
+  const detail = [
+    model ? `Model: ${sanitizeMetadataValue(model)}` : undefined,
+    effort ? `Effort: ${sanitizeMetadataValue(effort)}` : undefined,
+    cwd ? `Workspace: ${sanitizePath(cwd)}` : undefined,
+    approval ? `Approval: ${sanitizeMetadataValue(approval)}` : undefined,
+    sandboxType ? `Sandbox: ${sanitizeMetadataValue(sandboxType)}` : undefined
+  ].filter(Boolean).join('\n');
+
+  const label = [model, effort, sandboxType]
+    .filter((item): item is string => typeof item === 'string' && item.length > 0)
+    .map((item) => sanitizeMetadataValue(item))
+    .join(' · ');
+
+  return {
+    kind: 'status',
+    summary: `CTX  ${label || 'turn context'}`,
+    detail: detail || 'Turn context updated',
+    metadata: eventMetadata(event)
+  };
+}
+
+function parseToolOutputEvent(event: JsonRecord, payload: JsonRecord): ParsedLogEvent | undefined {
+  const output = payload.output;
+  const text = extractOutputText(output);
+
+  if (!text) {
+    return undefined;
+  }
+
+  const firstLine = firstUsefulLine(text);
+
+  return {
+    kind: 'status',
+    summary: `OUT  ${sanitizeMessagePreview(firstLine, 96)}`,
+    statusText: 'Codex: received tool output',
+    detail: sanitizeMessageDetail(text, 1400),
+    metadata: eventMetadata(event)
+  };
+}
+
+function parsePatchApplyEndEvent(event: JsonRecord, payload: JsonRecord): ParsedLogEvent {
+  const changes = getRecord(payload, 'changes');
+  const changedFiles = changes ? Object.keys(changes).map(sanitizePath) : [];
+  const success = payload.success === true;
+  const label = changedFiles.length === 1 ? changedFiles[0] : `${changedFiles.length || 'some'} files`;
+
+  return {
+    kind: 'patch',
+    summary: success ? `EDIT applied ${label}` : `EDIT failed ${label}`,
+    statusText: success ? 'Codex: applied changes' : 'Codex: edit failed',
+    detail: changedFiles.length > 0 ? `Changed files: ${changedFiles.join(', ')}` : sanitizeMessageDetail(getString(payload, 'stderr') ?? getString(payload, 'stdout') ?? 'Patch apply completed', 900),
+    metadata: eventMetadata(event)
+  };
+}
+
+function parseTokenCountEvent(event: JsonRecord, payload: JsonRecord): ParsedLogEvent | undefined {
+  const info = getRecord(payload, 'info');
+  const totalUsage = getRecord(info, 'total_token_usage');
+  const lastUsage = getRecord(info, 'last_token_usage');
+
+  const primaryPercent = getNumber(getRecord(getRecord(payload, 'rate_limits'), 'primary'), 'used_percent');
+  const secondaryPercent = getNumber(getRecord(getRecord(payload, 'rate_limits'), 'secondary'), 'used_percent');
+
+  if (!totalUsage && !lastUsage && primaryPercent === undefined && secondaryPercent === undefined) {
+    return undefined;
+  }
+
+  const totalTokens = getNumber(totalUsage, 'total_tokens');
+  const lastTokens = getNumber(lastUsage, 'total_tokens');
+  const contextWindow = getNumber(info, 'model_context_window');
+  const contextPercent = lastTokens !== undefined && contextWindow ? Math.round((lastTokens / contextWindow) * 100) : undefined;
+
+  const summaryParts = [
+    primaryPercent !== undefined ? `${formatPercent(primaryPercent)} 5h` : undefined,
+    secondaryPercent !== undefined ? `${formatPercent(secondaryPercent)} weekly` : undefined,
+    lastTokens !== undefined ? `last ${formatCompactNumber(lastTokens)}` : undefined
+  ].filter((item): item is string => item !== undefined);
+
+  return {
+    kind: 'token',
+    summary: `TOKEN ${summaryParts.join(' · ') || 'usage update'}`,
+    statusText: 'Codex: watching token usage',
+    detail: [
+      totalTokens !== undefined ? `Total tokens: ${formatCompactNumber(totalTokens)}` : undefined,
+      lastTokens !== undefined ? `Last turn: ${formatCompactNumber(lastTokens)}` : undefined,
+      contextPercent !== undefined ? `Context window: ${formatPercent(contextPercent)}` : undefined,
+      primaryPercent !== undefined ? `5h limit: ${formatPercent(primaryPercent)}` : undefined,
+      secondaryPercent !== undefined ? `Weekly limit: ${formatPercent(secondaryPercent)}` : undefined
+    ].filter(Boolean).join('\n'),
+    metadata: [
+      ...eventMetadata(event),
+      ...tokenMetadata(totalUsage, lastUsage, contextWindow, primaryPercent, secondaryPercent, contextPercent)
+    ]
+  };
+}
+
+function tokenMetadata(
+  totalUsage: JsonRecord | undefined,
+  lastUsage: JsonRecord | undefined,
+  contextWindow: number | undefined,
+  primaryPercent: number | undefined,
+  secondaryPercent: number | undefined,
+  contextPercent: number | undefined
+): EventMetadata[] {
+  const totalTokens = getNumber(totalUsage, 'total_tokens');
+  const inputTokens = getNumber(totalUsage, 'input_tokens');
+  const cachedInputTokens = getNumber(totalUsage, 'cached_input_tokens');
+  const outputTokens = getNumber(totalUsage, 'output_tokens');
+  const lastTokens = getNumber(lastUsage, 'total_tokens');
+  const lastInputTokens = getNumber(lastUsage, 'input_tokens');
+  const lastOutputTokens = getNumber(lastUsage, 'output_tokens');
+  const lastReasoningTokens = getNumber(lastUsage, 'reasoning_output_tokens');
+
+  return [
+    totalTokens !== undefined ? { label: 'Total', value: formatCompactNumber(totalTokens) } : undefined,
+    inputTokens !== undefined ? { label: 'Input', value: formatCompactNumber(inputTokens) } : undefined,
+    cachedInputTokens !== undefined ? { label: 'Cached', value: formatCompactNumber(cachedInputTokens) } : undefined,
+    outputTokens !== undefined ? { label: 'Output', value: formatCompactNumber(outputTokens) } : undefined,
+    lastTokens !== undefined ? { label: 'Last', value: formatCompactNumber(lastTokens) } : undefined,
+    lastInputTokens !== undefined ? { label: 'Last input', value: formatCompactNumber(lastInputTokens) } : undefined,
+    lastOutputTokens !== undefined ? { label: 'Last output', value: formatCompactNumber(lastOutputTokens) } : undefined,
+    lastReasoningTokens !== undefined ? { label: 'Last reasoning', value: formatCompactNumber(lastReasoningTokens) } : undefined,
+    contextWindow !== undefined ? { label: 'Context window', value: formatCompactNumber(contextWindow) } : undefined,
+    contextPercent !== undefined ? { label: 'Context', value: formatPercent(contextPercent) } : undefined,
+    primaryPercent !== undefined ? { label: '5h limit', value: formatPercent(primaryPercent) } : undefined,
+    secondaryPercent !== undefined ? { label: 'Weekly limit', value: formatPercent(secondaryPercent) } : undefined
+  ].filter((item): item is EventMetadata => item !== undefined);
+}
+
+function parseAgentMessageEvent(event: JsonRecord, payload: JsonRecord): ParsedLogEvent | undefined {
+  const message = getString(payload, 'message');
+
+  if (!message) {
+    return undefined;
+  }
+
+  const firstLine = firstUsefulLine(message);
+
+  return {
+    kind: 'message',
+    summary: `MSG  ${sanitizeMessagePreview(firstLine, 96)}`,
+    statusText: 'Codex: message',
+    detail: sanitizeMessageDetail(message, 1800),
+    metadata: eventMetadata(event)
+  };
 }
 
 function parseGenericEvent(event: JsonRecord, showFullPayload = false): ParsedLogEvent | undefined {
@@ -241,6 +474,56 @@ function extractPromptText(event: JsonRecord): string | undefined {
   return undefined;
 }
 
+function extractOutputText(value: unknown): string | undefined {
+  if (typeof value === 'string') {
+    return value.trim() || undefined;
+  }
+
+  if (Array.isArray(value)) {
+    const pieces = value
+      .map((item) => {
+        if (typeof item === 'string') {
+          return item;
+        }
+
+        if (!isRecord(item)) {
+          return undefined;
+        }
+
+        const type = getString(item, 'type');
+
+        if (type === 'input_image') {
+          return 'Image output';
+        }
+
+        return getString(item, 'text') ?? getString(item, 'output') ?? getString(item, 'message');
+      })
+      .filter((item): item is string => item !== undefined);
+
+    return pieces.join('\n').trim() || undefined;
+  }
+
+  if (isRecord(value)) {
+    return getString(value, 'text') ?? getString(value, 'output') ?? getString(value, 'message') ?? JSON.stringify(redactLargeFields(value));
+  }
+
+  return undefined;
+}
+
+function redactLargeFields(value: JsonRecord): JsonRecord {
+  const redacted: JsonRecord = {};
+
+  for (const [key, field] of Object.entries(value)) {
+    if (typeof field === 'string' && field.length > 240) {
+      redacted[key] = `${field.slice(0, 120)}...`;
+    } else {
+      redacted[key] = field;
+    }
+  }
+
+  return redacted;
+}
+
 function findStringByKey(value: unknown, keys: string[], depth = 0): string | undefined {
   if (depth > 8) {
     return undefined;
@@ -328,6 +611,10 @@ function sanitizeToolName(toolName: string): string {
   return sanitizeToken(toolName);
 }
 
+function sanitizeSessionId(value: string): string {
+  return sanitizeToken(value).slice(0, 8);
+}
+
 function sanitizePath(filePath: string): string {
   return filePath.split(/[\\/]/).filter(Boolean).pop() ?? 'file';
 }
@@ -375,6 +662,56 @@ function sanitizePromptDetail(value: string, maxLength: number): string {
   return normalized.length > maxLength ? `${normalized.slice(0, Math.max(0, maxLength - 1))}...` : normalized;
 }
 
+function sanitizeMessagePreview(value: string, maxLength: number): string {
+  return sanitizePromptPreview(value.replace(/\[[^\]]+\]\([^)]*\)/g, '$1'), maxLength);
+}
+
+function sanitizeMessageDetail(value: string, maxLength: number): string {
+  const withoutAbsoluteMarkdownLinks = value.replace(/\[([^\]]+)\]\((?:file:\/\/)?\/[^)]*\)/g, '$1');
+  return sanitizePromptDetail(withoutAbsoluteMarkdownLinks, maxLength);
+}
+
+function firstUsefulLine(value: string): string {
+  const lines = value
+    .split(/\r?\n/)
+    .map((line) => line.replace(/^#+\s*/, '').trim())
+    .filter(Boolean);
+
+  return lines[0] ?? 'message';
+}
+
+function summarizeTaskComplete(payload: JsonRecord): string {
+  const lastAgentMessage = getString(payload, 'last_agent_message');
+
+  if (lastAgentMessage) {
+    return sanitizeMessageDetail(lastAgentMessage, 900);
+  }
+
+  return 'Task complete';
+}
+
+function formatCompactNumber(value: number): string {
+  const absolute = Math.abs(value);
+
+  if (absolute >= 1_000_000) {
+    return `${trimNumber(value / 1_000_000)}M`;
+  }
+
+  if (absolute >= 1_000) {
+    return `${trimNumber(value / 1_000)}k`;
+  }
+
+  return String(value);
+}
+
+function trimNumber(value: number): string {
+  return value.toFixed(value >= 10 ? 1 : 2).replace(/\.0+$/, '').replace(/(\.\d)0$/, '$1');
+}
+
+function formatPercent(value: number): string {
+  return `${Math.round(value)}%`;
+}
+
 function eventMetadata(event: JsonRecord, toolName?: string): EventMetadata[] {
   const payload = getRecord(event, 'payload') ?? getRecord(event, 'item');
   const metadata = [
@@ -414,6 +751,15 @@ function getString(value: unknown, key: string): string | undefined {
   return typeof field === 'string' ? field : undefined;
 }
 
+function getNumber(value: unknown, key: string): number | undefined {
+  if (!isRecord(value)) {
+    return undefined;
+  }
+
+  const field = value[key];
+  return typeof field === 'number' && Number.isFinite(field) ? field : undefined;
+}
+
 function isRecord(value: unknown): value is JsonRecord {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
@@ -421,7 +767,12 @@ function isRecord(value: unknown): value is JsonRecord {
 function isSuppressedMessageEvent(event: JsonRecord): boolean {
   const payload = getRecord(event, 'payload') ?? getRecord(event, 'item');
   const type = getString(event, 'type') ?? getString(payload, 'type');
+  const payloadType = getString(payload, 'type');
   const role = getString(event, 'role') ?? getString(payload, 'role');
 
-  return type?.toLowerCase().includes('message') === true && role !== 'user';
+  if (payloadType === 'reasoning') {
+    return true;
+  }
+
+  return (type?.toLowerCase().includes('message') === true || payloadType === 'message') && role !== 'user';
 }
