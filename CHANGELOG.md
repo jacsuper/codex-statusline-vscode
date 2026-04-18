@@ -4,6 +4,15 @@ All notable changes to Codex Statusline will be documented in this file.
 
 This project follows a pragmatic pre-1.0 changelog style while the extension is still stabilizing.
 
+## 0.0.4 - 2026-04-18
+
+### Added
+
+- Token usage rows now render as `TOKEN` events with compact token totals and usage meters.
+- Agent messages, tool outputs, task events, turn context, session metadata, and errors now get dedicated activity rows instead of generic `LOG` rows.
+- Expanded token details include context-window, 5-hour limit, and weekly limit visual bars.
+- Expanded message and output details show sanitized multi-line text instead of only event keys.
+
 ## 0.0.3 - 2026-04-16
 
 ### Added

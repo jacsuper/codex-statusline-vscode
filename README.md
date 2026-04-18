@@ -26,6 +26,8 @@ Install it from the [Visual Studio Marketplace](https://marketplace.visualstudio
 - Shows a compact status bar item, such as `Codex: pinned`, `Codex: running command`, or `Codex: no log found`.
 - Adds a dockable `Codex Activity` webview view in Explorer.
 - Shows sanitized activity rows with short labels like `ASK`, `RUN`, `EDIT`, `TOOL`, and `LOG`, plus a compact hint so repeated commands are easier to tell apart.
+- Promotes common Codex events into richer rows like `TOKEN`, `MSG`, `OUT`, `TASK`, `CTX`, and `ERR` instead of leaving them as anonymous log records.
+- Shows token usage with compact numbers and visual meters for context-window, 5-hour, and weekly usage.
 - Lets you click an activity row to see richer sanitized event details and metadata, with an explicit action to open the source rollout log.
 - Opens the source rollout log at the selected event line when line information is available.
 - Links command/tool/edit rows back to the latest loaded user prompt when that prompt is still in recent activity.
